@@ -7,4 +7,5 @@ Route::get('/', function () {
     return view('welcome');
 });
 
-Route::get('/ready', ReadinessController::class)->name('ready');
+// without midleware for not checking db at first.
+Route::get('/ready', ReadinessController::class)->name('ready')->withoutMiddleware('web');
