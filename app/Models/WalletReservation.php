@@ -3,7 +3,6 @@
 namespace App\Models;
 
 use App\Enums\WalletReservationStatus;
-use Database\Factories\WalletReservationFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
@@ -34,17 +33,12 @@ class WalletReservation extends Model
         return $this->belongsTo(Wallet::class);
     }
 
-  
-    //Reservations that still hold funds against their wallet.
     #[Scope]
     protected function pending(Builder $query): Builder
     {
         return $query->where('status', WalletReservationStatus::Pending);
     }
 
-    /**
-     * Pending reservations whose expiry time has already passed.
-     */
     #[Scope]
     protected function overdue(Builder $query): Builder
     {
