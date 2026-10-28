@@ -7,13 +7,18 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\ChargeWalletRequest;
 use App\Http\Resources\WalletResource;
 use App\Http\Resources\WalletTransactionResource;
-use App\Models\Consumer;
 use Illuminate\Http\JsonResponse;
 
 class WalletChargeController extends Controller
 {
-    public function store(ChargeWalletRequest $request, Consumer $consumer, ChargeWallet $chargeWallet): JsonResponse
+    public function store(ChargeWalletRequest $request, ChargeWallet $chargeWallet): JsonResponse
     {
+        $consumer = $request->consumer();
+
+        if ($consumer === null) {
+            return $this->consumerNotFound();
+        }
+
         $transaction = $chargeWallet->handle(
             $consumer,
             $request->integer('amount'),

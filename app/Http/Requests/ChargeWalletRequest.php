@@ -2,10 +2,13 @@
 
 namespace App\Http\Requests;
 
+use App\Http\Requests\Concerns\ResolvesConsumer;
 use Illuminate\Foundation\Http\FormRequest;
 
 class ChargeWalletRequest extends FormRequest
 {
+    use ResolvesConsumer;
+
     public function authorize(): bool
     {
         return true;

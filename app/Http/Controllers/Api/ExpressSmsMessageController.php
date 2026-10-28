@@ -7,13 +7,18 @@ use App\Enums\SmsType;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\SendExpressSmsRequest;
 use App\Http\Resources\SmsMessageResource;
-use App\Models\Consumer;
 use Illuminate\Http\JsonResponse;
 
 class ExpressSmsMessageController extends Controller
 {
-    public function store(SendExpressSmsRequest $request, Consumer $consumer, SendSms $sendSms): JsonResponse
+    public function store(SendExpressSmsRequest $request, SendSms $sendSms): JsonResponse
     {
+        $consumer = $request->consumer();
+
+        if ($consumer === null) {
+            return $this->consumerNotFound();
+        }
+
         $message = $sendSms->handle(
             $consumer,
             SmsType::Express,

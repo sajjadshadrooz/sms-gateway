@@ -6,7 +6,7 @@ use App\Http\Controllers\Api\WalletChargeController;
 use App\Http\Controllers\Api\WalletTransactionController;
 use Illuminate\Support\Facades\Route;
 
-Route::prefix('consumers/{consumer}')->name('consumers.')->group(function () {
+Route::prefix('consumers/{consumerId}')->name('consumers.')->group(function () {
     Route::post('sms-messages', [SmsMessageController::class, 'store'])
         ->name('sms-messages.store');
 
