@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use Database\Factories\WalletFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -35,6 +34,11 @@ class Wallet extends Model
     public function reservations(): HasMany
     {
         return $this->hasMany(WalletReservation::class);
+    }
+
+    public function transactions(): HasMany
+    {
+        return $this->hasMany(WalletTransaction::class);
     }
 
     public function availableBalance(): int
