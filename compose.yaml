@@ -39,5 +39,18 @@ services:
             KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true" # i make a kafka init in future
             KAFKA_NUM_PARTITIONS: ${KAFKA_PARTITIONS:-3} # i change partitions structure in future
 
+    kafka-ui:
+        image: ghcr.io/kafbat/kafka-ui:latest
+        container_name: sms-gateway-kafka-ui
+        restart: unless-stopped
+        ports:
+            - "8080:8080"
+        environment:
+            DYNAMIC_CONFIG_ENABLED: "true"
+            KAFKA_CLUSTERS_0_NAME: local
+            KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+        depends_on:
+            - kafka
+
 volumes:
     postgres-data:
