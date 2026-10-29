@@ -2,6 +2,9 @@
 
 namespace App\Providers;
 
+use App\Contracts\SmsQueue;
+use App\Services\Kafka\KafkaProducer;
+use App\Services\Kafka\KafkaSmsQueue;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -11,7 +14,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->singleton(KafkaProducer::class); // we should hase just one instance of KafkaProducer of performance.
+        $this->app->bind(SmsQueue::class, KafkaSmsQueue::class);
     }
 
     /**

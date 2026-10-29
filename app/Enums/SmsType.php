@@ -11,4 +11,9 @@ enum SmsType: string
     {
         return (int) config("sms.prices.{$this->value}");
     }
+
+    public function topic(): string
+    {
+        return (string) config("kafka.topics.{$this->value}");
+    }
 }
