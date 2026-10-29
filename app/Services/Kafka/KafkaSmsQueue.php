@@ -3,6 +3,7 @@
 namespace App\Services\Kafka;
 
 use App\Contracts\SmsQueue;
+use App\Enums\SmsType;
 use App\Exceptions\SmsQueueUnavailableException;
 use App\Models\SmsMessage;
 use Throwable;
@@ -27,9 +28,22 @@ class KafkaSmsQueue implements SmsQueue
         ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
 
         try {
-            $this->producer->send($topic, $payload, (string) $message->consumer_id);
+            $this->producer->send($topic, $payload, $this->partitionKey($message));
         } catch (Throwable $e) {
             throw new SmsQueueUnavailableException($topic, $e);
         }
+    }
+
+    /**
+     * Express messages get a unique key so they hash evenly across all partitions.
+     * Normal messages are keyed by consumer so ordering per consumer is preserved.
+     * Prefixes keep the two key spaces from colliding when an id value matches.
+     */
+    private function partitionKey(SmsMessage $message): string
+    {
+        return match ($message->type) {
+            SmsType::Express => "message-{$message->id}",
+            SmsType::Normal => "consumer-{$message->consumer_id}",
+        };
     }
 }
