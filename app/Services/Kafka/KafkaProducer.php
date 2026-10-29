@@ -5,6 +5,7 @@ namespace App\Services\Kafka;
 use Junges\Kafka\Contracts\Producer;
 use Junges\Kafka\Facades\Kafka;
 use Junges\Kafka\Message\Message;
+use Junges\Kafka\Producers\Builder;
 
 use RdKafka\Message as DeliveryReport;
 use RdKafka\Producer as RdKafkaProducer;
@@ -41,7 +42,15 @@ class KafkaProducer
 
     private function producer(): Producer
     {
-        return $this->producer ??= Kafka::publish()
+        if ($this->producer !== null) {
+            return $this->producer;
+        }
+
+        $builder = Kafka::publish();
+
+        assert($builder instanceof Builder);
+
+        $builder
             ->withConfigOptions([
                 'client.id' => (string) config('kafka.client_id'),
                 'acks' => 'all',
@@ -51,15 +60,17 @@ class KafkaProducer
                 'request.timeout.ms' => $this->milliseconds('kafka.recv_timeout'),
                 'message.timeout.ms' => $this->milliseconds('kafka.send_timeout'),
             ])
-            ->withDrMsgCb(function (RdKafkaProducer $kafka, DeliveryReport $report): void {
-                if ($report->err !== RD_KAFKA_RESP_ERR_NO_ERROR) {
-                    $this->deliveryError = rd_kafka_err2str($report->err);
-                }
-            })
             ->usingSerializer(new RawMessageSerializer)
             ->withFlushTimeout((int) $this->milliseconds('kafka.send_timeout'))
-            ->withFlushRetries((int) config('kafka.flush_retries', 2))
-            ->build();
+            ->withFlushRetries((int) config('kafka.flush_retries', 2));
+
+        $builder->withDrMsgCb(function (RdKafkaProducer $kafka, DeliveryReport $report): void {
+            if ($report->err !== RD_KAFKA_RESP_ERR_NO_ERROR) {
+                $this->deliveryError = rd_kafka_err2str($report->err);
+            }
+        });
+
+        return $this->producer = $builder->build();
     }
 
     private function milliseconds(string $configKey): string
