@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Database\Connection;
 use Illuminate\Database\ConnectionResolverInterface;
 use Throwable;
 
@@ -23,8 +24,11 @@ class DatabaseReadiness
         try 
         {
             $db = $this->connections->connection($connection);
-            $db->disconnect();
+
+            assert($db instanceof Connection);
+
             $db->select('select 1');
+            $db->disconnect();
             return null;
         } 
         catch (Throwable $e)
