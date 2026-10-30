@@ -36,6 +36,8 @@ return [
     ],
 
     'sms_operator' => [
+        'url' => env('SMS_OPERATOR_URL'),
+
         'fake' => [
             'enabled' => env('SMS_OPERATOR_FAKE_ENABLED', false),
             'latency_min' => env('SMS_OPERATOR_FAKE_LATENCY_MIN', 100),
