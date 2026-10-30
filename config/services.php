@@ -35,4 +35,13 @@ return [
         ],
     ],
 
+    'sms_operator' => [
+        'fake' => [
+            'enabled' => env('SMS_OPERATOR_FAKE_ENABLED', false),
+            'latency_min' => env('SMS_OPERATOR_FAKE_LATENCY_MIN', 100),
+            'latency_max' => env('SMS_OPERATOR_FAKE_LATENCY_MAX', 2000),
+            'failure_rate' => env('SMS_OPERATOR_FAKE_FAILURE_RATE', 10),
+        ],
+    ],
+
 ];
