@@ -26,7 +26,7 @@ class SmsMessageFactory extends Factory
             'recipient' => fake()->numerify('0912#######'),
             'body' => fake()->sentence(),
             'cost' => 100,
-            'status' => SmsMessageStatus::Pending,
+            'status' => SmsMessageStatus::Queued,
         ];
     }
 

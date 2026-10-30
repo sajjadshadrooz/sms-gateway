@@ -16,7 +16,7 @@ class SmsMessage extends Model
     use HasFactory;
 
     protected $attributes = [
-        'status' => SmsMessageStatus::Pending,
+        'status' => SmsMessageStatus::Queued,
     ];
 
     protected function casts(): array

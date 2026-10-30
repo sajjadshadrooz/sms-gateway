@@ -2,9 +2,11 @@
 
 namespace App\Actions;
 
+use App\Enums\SmsMessageStatus;
 use App\Models\SmsMessage;
 use App\Services\SmsOperator\SmsOperatorClient;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
@@ -15,6 +17,17 @@ class DispatchExpressSms
     ) {}
 
     public function handle(SmsMessage $sms): void
+    {
+        match ($sms->status) {
+            SmsMessageStatus::Accepted => $sms->reservation->confirm("SMS {$sms->id}"),
+            SmsMessageStatus::Failed => $sms->reservation->release(),
+            SmsMessageStatus::Delivered => null,
+            SmsMessageStatus::Queued,
+            SmsMessageStatus::Processing => $this->send($sms),
+        };
+    }
+
+    private function send(SmsMessage $sms): void
     {
         try {
             $response = $this->operator->send([
@@ -35,9 +48,10 @@ class DispatchExpressSms
         }
 
         if ($response->successful()) {
-            $sms->update([
-                'status' => 'accepted',
-            ]);
+            DB::transaction(function () use ($sms) {
+                $sms->update(['status' => SmsMessageStatus::Accepted]);
+                $sms->reservation->confirm("SMS {$sms->id}");
+            });
 
             Log::info('SMS accepted by operator', [
                 'sms_id' => $sms->id,
@@ -55,9 +69,10 @@ class DispatchExpressSms
             );
         }
 
-        $sms->update([
-            'status' => 'failed',
-        ]);
+        DB::transaction(function () use ($sms) {
+            $sms->update(['status' => SmsMessageStatus::Failed]);
+            $sms->reservation->release();
+        });
 
         Log::error('SMS rejected by operator', [
             'sms_id' => $sms->id,

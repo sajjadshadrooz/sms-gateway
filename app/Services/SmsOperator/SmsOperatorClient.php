@@ -12,6 +12,7 @@ class SmsOperatorClient
     public function send(array $payload): Response
     {
         return Http::acceptJson()
+            ->withHeaders(['Idempotency-Key' => (string) $payload['id']])
             ->connectTimeout(2)
             ->timeout(5)
             ->retry([1000, 3000], when: function (\Throwable $exception) {

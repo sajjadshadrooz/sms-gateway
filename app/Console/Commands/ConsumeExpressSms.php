@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Actions\DispatchExpressSms;
+use App\Enums\SmsMessageStatus;
 use App\Models\SmsMessage;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
@@ -40,6 +41,10 @@ class ConsumeExpressSms extends Command
 
                 $sms = SmsMessage::findOrFail($smsId);
 
+                if ($sms->status === SmsMessageStatus::Queued) {
+                    $sms->update(['status' => SmsMessageStatus::Processing]);
+                }
+
                 try {
                     $dispatch->handle($sms);
                 } catch (Throwable $exception) {
@@ -50,7 +55,7 @@ class ConsumeExpressSms extends Command
 
                     throw $exception;
                 }
-                
+
                 $consumer->commit($message);
 
                 $this->info("Processed SMS: {$smsId}");

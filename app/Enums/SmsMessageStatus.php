@@ -4,7 +4,13 @@ namespace App\Enums;
 
 enum SmsMessageStatus: string
 {
-    case Pending = 'pending';
-    case Sent = 'sent';
+    case Queued = 'queued';
+
+    case Processing = 'processing';
+
+    case Accepted = 'accepted';
+
     case Failed = 'failed';
+
+    case Delivered = 'delivered';
 }

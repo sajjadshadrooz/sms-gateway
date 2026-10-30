@@ -16,7 +16,7 @@ return new class extends Migration
             $table->string('recipient', 32);
             $table->text('body');
             $table->unsignedBigInteger('cost');
-            $table->string('status', 32)->default('pending');
+            $table->string('status', 32)->default('queued');
             $table->timestamps();
 
             $table->index(['consumer_id', 'created_at']);
