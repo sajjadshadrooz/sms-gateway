@@ -2,7 +2,9 @@
 
 namespace App\Actions;
 
+use App\Contracts\MessageEventLog;
 use App\Contracts\SmsQueue;
+use App\Enums\MessageEvent;
 use App\Enums\SmsMessageStatus;
 use App\Models\SmsMessage;
 use App\Services\SmsOperator\SmsOperatorClient;
@@ -16,6 +18,7 @@ class DispatchExpressSms
     public function __construct(
         private readonly SmsOperatorClient $operator,
         private readonly SmsQueue $queue,
+        private readonly MessageEventLog $events,
     ) {}
 
     /**
@@ -23,15 +26,28 @@ class DispatchExpressSms
      */
     public function handle(SmsMessage $sms): void
     {
-        match ($sms->status) {
-            SmsMessageStatus::Accepted => $sms->reservation->confirm("SMS {$sms->id}"),
-            SmsMessageStatus::Failed => $sms->reservation->release(),
-            // Waiting for sms:republish-retries; the original Kafka message is stale.
-            SmsMessageStatus::RetryScheduled,
-            SmsMessageStatus::Delivered => null,
+        $action = match ($sms->status) {
             SmsMessageStatus::Queued,
-            SmsMessageStatus::Processing => $this->send($sms),
+            SmsMessageStatus::Processing => null,
+            SmsMessageStatus::Accepted => 'confirm_reservation',
+            SmsMessageStatus::Failed => 'release_reservation',
+            SmsMessageStatus::RetryScheduled,
+            SmsMessageStatus::Delivered => 'ignore',
         };
+
+        if ($action === null) {
+            $this->send($sms);
+
+            return;
+        }
+
+        match ($action) {
+            'confirm_reservation' => $sms->reservation->confirm("SMS {$sms->id}"),
+            'release_reservation' => $sms->reservation->release(),
+            'ignore' => null,
+        };
+
+        $this->events->record($sms, MessageEvent::Skipped, ['action' => $action]);
     }
 
     private function send(SmsMessage $sms): void
@@ -58,6 +74,11 @@ class DispatchExpressSms
                 $sms->reservation->confirm("SMS {$sms->id}");
             });
 
+            $this->events->record($sms, MessageEvent::Accepted, [
+                'http_status' => $response->status(),
+                'operator_response' => $response->json(),
+            ]);
+
             Log::info('SMS accepted by operator', [
                 'sms_id' => $sms->id,
                 'attempts' => $sms->attempts,
@@ -67,12 +88,16 @@ class DispatchExpressSms
         }
 
         if ($response->status() === 429 || $response->serverError()) {
-            $this->scheduleRetry($sms, "http {$response->status()}");
+            $this->scheduleRetry($sms, "http {$response->status()}", $response->status());
 
             return;
         }
 
-        $this->fail($sms, "http {$response->status()}");
+        $this->fail($sms, "http {$response->status()}", context: [
+            'reason' => 'operator_rejected',
+            'http_status' => $response->status(),
+            'operator_response' => $response->json(),
+        ]);
 
         Log::error('SMS rejected by operator', [
             'sms_id' => $sms->id,
@@ -85,12 +110,12 @@ class DispatchExpressSms
      * Record the failed attempt and hand the message to the republish scheduler,
      * or give up once the attempt limit is reached.
      */
-    private function scheduleRetry(SmsMessage $sms, string $error): void
+    private function scheduleRetry(SmsMessage $sms, string $error, int $httpStatus = 0): void
     {
         $attempt = $sms->attempts + 1;
 
         if ($attempt >= (int) config('sms.retry.max_attempts')) {
-            $this->exhaust($sms, $attempt, $error);
+            $this->exhaust($sms, $attempt, $error, $httpStatus);
 
             return;
         }
@@ -104,6 +129,11 @@ class DispatchExpressSms
             'last_error' => $error,
         ]);
 
+        $this->events->record($sms, MessageEvent::RetryScheduled, [
+            'error' => $error,
+            'http_status' => $httpStatus,
+        ]);
+
         Log::warning('SMS retry scheduled', [
             'sms_id' => $sms->id,
             'attempt' => $attempt,
@@ -112,9 +142,12 @@ class DispatchExpressSms
         ]);
     }
 
-    private function exhaust(SmsMessage $sms, int $attempt, string $error): void
+    private function exhaust(SmsMessage $sms, int $attempt, string $error, int $httpStatus): void
     {
-        $this->fail($sms, $error, $attempt);
+        $this->fail($sms, $error, $attempt, [
+            'reason' => 'max_attempts_exceeded',
+            'http_status' => $httpStatus,
+        ]);
 
         // The database already reflects the failure; a DLQ outage must not undo that.
         try {
@@ -123,6 +156,11 @@ class DispatchExpressSms
                 'attempts' => $attempt,
                 'last_error' => $error,
             ], 'max_attempts_exceeded');
+
+            $this->events->record($sms, MessageEvent::DeadLettered, [
+                'reason' => 'max_attempts_exceeded',
+                'error' => $error,
+            ]);
         } catch (Throwable $exception) {
             Log::error('SMS could not be sent to the dead letter topic', [
                 'sms_id' => $sms->id,
@@ -137,10 +175,7 @@ class DispatchExpressSms
         ]);
     }
 
-    /**
-     * Mark the message failed and return the held funds to the wallet, atomically.
-     */
-    private function fail(SmsMessage $sms, string $error, ?int $attempt = null): void
+    private function fail(SmsMessage $sms, string $error, ?int $attempt = null, array $context = []): void
     {
         DB::transaction(function () use ($sms, $error, $attempt) {
             $sms->update([
@@ -151,11 +186,12 @@ class DispatchExpressSms
             ]);
             $sms->reservation->release();
         });
+
+        $this->events->record($sms, MessageEvent::Failed, ['error' => $error, ...$context]);
     }
 
     private function backoffFor(int $attempt): int
     {
-        /** @var list<int> $backoff */
         $backoff = config('sms.retry.backoff_seconds', [5]);
 
         return (int) ($backoff[$attempt - 1] ?? end($backoff));

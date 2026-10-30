@@ -3,7 +3,9 @@
 namespace App\Console\Commands;
 
 use App\Actions\DispatchExpressSms;
+use App\Contracts\MessageEventLog;
 use App\Contracts\SmsQueue;
+use App\Enums\MessageEvent;
 use App\Enums\SmsMessageStatus;
 use App\Models\SmsMessage;
 use Illuminate\Console\Command;
@@ -17,7 +19,7 @@ class ConsumeExpressSms extends Command
 
     protected $description = 'Consume Express SMS messages from Kafka';
 
-    public function handle(DispatchExpressSms $dispatch, SmsQueue $queue): int
+    public function handle(DispatchExpressSms $dispatch, SmsQueue $queue, MessageEventLog $events): int
     {
         $topic = config('kafka.topics.express');
 
@@ -30,7 +32,7 @@ class ConsumeExpressSms extends Command
             // An uncaught exception stops the worker with the offset uncommitted, so the
             // message is reprocessed after restart instead of being skipped by a later commit.
             ->stopOnFailure()
-            ->withHandler(function ($message, $consumer) use ($dispatch, $queue) {
+            ->withHandler(function ($message, $consumer) use ($dispatch, $queue, $events) {
                 $payload = $message->getBody();
                 $payload = is_array($payload) ? $payload : ['raw' => $payload];
 
@@ -44,6 +46,12 @@ class ConsumeExpressSms extends Command
                     ]);
 
                     $queue->publishDeadLetter($payload, 'unknown_message');
+                    $events->recordUnmatched(MessageEvent::UnknownMessage, $payload, [
+                        'reason' => 'unknown_message',
+                        'topic' => $message->getTopicName(),
+                        'partition' => $message->getPartition(),
+                        'offset' => $message->getOffset(),
+                    ]);
                     $consumer->commit($message);
 
                     return;
@@ -51,6 +59,12 @@ class ConsumeExpressSms extends Command
 
                 if ($sms->status === SmsMessageStatus::Queued) {
                     $sms->update(['status' => SmsMessageStatus::Processing]);
+
+                    $events->record($sms, MessageEvent::Processing, [
+                        'topic' => $message->getTopicName(),
+                        'partition' => $message->getPartition(),
+                        'offset' => $message->getOffset(),
+                    ]);
                 }
 
                 try {

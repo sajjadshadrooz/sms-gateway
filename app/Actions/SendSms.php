@@ -2,7 +2,9 @@
 
 namespace App\Actions;
 
+use App\Contracts\MessageEventLog;
 use App\Contracts\SmsQueue;
+use App\Enums\MessageEvent;
 use App\Enums\SmsType;
 use App\Exceptions\InsufficientBalanceException;
 use App\Models\Consumer;
@@ -13,16 +15,18 @@ use Illuminate\Support\Str;
 /**
  * proccess the sms and publish in queue.
  **/
-
 class SendSms
 {
-    public function __construct(private readonly SmsQueue $queue) {}
+    public function __construct(
+        private readonly SmsQueue $queue,
+        private readonly MessageEventLog $events,
+    ) {}
 
     public function handle(Consumer $consumer, SmsType $type, string $recipient, string $body): SmsMessage
     {
         $cost = $type->price();
 
-        return DB::transaction(function () use ($consumer, $type, $recipient, $body, $cost) {
+        $message = DB::transaction(function () use ($consumer, $type, $recipient, $body, $cost) {
             $wallet = $consumer->wallet()->lockForUpdate()->first();
             $available = $wallet?->availableBalance() ?? 0;
 
@@ -50,5 +54,10 @@ class SendSms
 
             return $message;
         });
+
+        // After the commit, so the history never shows a message that was rolled back.
+        $this->events->record($message, MessageEvent::Queued);
+
+        return $message;
     }
 }

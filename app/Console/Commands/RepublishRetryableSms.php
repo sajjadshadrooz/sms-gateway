@@ -2,7 +2,9 @@
 
 namespace App\Console\Commands;
 
+use App\Contracts\MessageEventLog;
 use App\Contracts\SmsQueue;
+use App\Enums\MessageEvent;
 use App\Enums\SmsMessageStatus;
 use App\Models\SmsMessage;
 use Illuminate\Console\Command;
@@ -14,11 +16,11 @@ class RepublishRetryableSms extends Command
 
     protected $description = 'Put SMS messages whose retry time has arrived back on their Kafka topic';
 
-    public function handle(SmsQueue $queue): int
+    public function handle(SmsQueue $queue, MessageEventLog $events): int
     {
         $limit = (int) ($this->option('limit') ?: config('sms.retry.republish_batch'));
 
-        $count = DB::transaction(function () use ($queue, $limit) {
+        $republished = DB::transaction(function () use ($queue, $limit) {
             $due = SmsMessage::query()
                 ->retryDue()
                 ->orderBy('next_retry_at')
@@ -38,8 +40,15 @@ class RepublishRetryableSms extends Command
                 $queue->publish($sms);
             }
 
-            return $due->count();
+            return $due;
         });
+
+        // After the commit: a rolled-back batch must not appear in the history.
+        foreach ($republished as $sms) {
+            $events->record($sms, MessageEvent::Republished, ['topic' => $sms->type->topic()]);
+        }
+
+        $count = $republished->count();
 
         $this->info("Republished {$count} SMS message(s).");
 
