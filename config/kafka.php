@@ -16,6 +16,8 @@ return [
     'send_timeout' => (float) env('KAFKA_SEND_TIMEOUT', 5),
     'recv_timeout' => (float) env('KAFKA_RECV_TIMEOUT', 5),
 
+    'auto_commit' => env('KAFKA_AUTO_COMMIT', true),
+
     'flush_retries' => 2,
     
     'compression' => env('KAFKA_COMPRESSION_TYPE', 'none'),
