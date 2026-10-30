@@ -53,6 +53,50 @@ services:
             retries: 12
             start_period: 15s
 
+    clickhouse:
+        image: clickhouse/clickhouse-server:25.8
+        container_name: sms-gateway-clickhouse
+        restart: unless-stopped
+        ports:
+            - "${CLICKHOUSE_HTTP_PORT:-8123}:8123"
+            - "${CLICKHOUSE_NATIVE_PORT:-9000}:9000"
+        ulimits:
+            nofile:
+                soft: 262144
+                hard: 262144
+        environment:
+            CLICKHOUSE_DB: ${CLICKHOUSE_DATABASE:-sms_gateway}
+            CLICKHOUSE_USER: ${CLICKHOUSE_USERNAME:-sms_gateway}
+            CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-secret}
+            CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+        volumes:
+            - clickhouse-data:/var/lib/clickhouse
+        healthcheck:
+            test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"]
+            interval: 5s
+            timeout: 3s
+            retries: 12
+            start_period: 10s
+
+    # One-shot: creates the ClickHouse database and the message event table, then exits.
+    clickhouse-migrate:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        container_name: sms-gateway-clickhouse-migrate
+        command: php artisan clickhouse:migrate
+        restart: "no"
+        env_file:
+            - .env
+        environment:
+            CLICKHOUSE_URL: http://clickhouse:8123
+        volumes:
+            - .:/var/www/html
+            - /var/www/html/vendor
+        depends_on:
+            clickhouse:
+                condition: service_healthy
+
     kafka-ui:
         image: ghcr.io/kafbat/kafka-ui:latest
         container_name: sms-gateway-kafka-ui
@@ -79,6 +123,7 @@ services:
         environment:
             DB_HOST: postgres
             KAFKA_BROKERS: kafka:29092
+            CLICKHOUSE_URL: http://clickhouse:8123
         volumes:
             - .:/var/www/html          # live code edits, no rebuild needed
             - /var/www/html/vendor     # keep the image's vendor, not the host one
@@ -87,6 +132,8 @@ services:
                 condition: service_healthy
             kafka:
                 condition: service_healthy
+            clickhouse-migrate:
+                condition: service_completed_successfully
 
     sms-express-worker:
         build:
@@ -100,6 +147,7 @@ services:
         environment:
             DB_HOST: postgres
             KAFKA_BROKERS: kafka:29092
+            CLICKHOUSE_URL: http://clickhouse:8123
         volumes:
             - .:/var/www/html
             - /var/www/html/vendor
@@ -110,6 +158,8 @@ services:
                 condition: service_healthy
             kafka:
                 condition: service_healthy
+            clickhouse-migrate:
+                condition: service_completed_successfully
 
     scheduler:
         build:
@@ -124,6 +174,7 @@ services:
         environment:
             DB_HOST: postgres
             KAFKA_BROKERS: kafka:29092
+            CLICKHOUSE_URL: http://clickhouse:8123
         volumes:
             - .:/var/www/html
             - /var/www/html/vendor
@@ -132,6 +183,8 @@ services:
                 condition: service_healthy
             kafka:
                 condition: service_healthy
+            clickhouse-migrate:
+                condition: service_completed_successfully
 
     sms-normal-worker:
         profiles:
@@ -147,6 +200,7 @@ services:
         environment:
             DB_HOST: postgres
             KAFKA_BROKERS: kafka:29092
+            CLICKHOUSE_URL: http://clickhouse:8123
         volumes:
             - .:/var/www/html
             - /var/www/html/vendor
@@ -157,7 +211,10 @@ services:
                 condition: service_healthy
             kafka:
                 condition: service_healthy
+            clickhouse-migrate:
+                condition: service_completed_successfully
 
 volumes:
     postgres-data:
     kafka-data:
+    clickhouse-data:
