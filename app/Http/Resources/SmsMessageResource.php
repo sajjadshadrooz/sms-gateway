@@ -20,6 +20,8 @@ class SmsMessageResource extends JsonResource
             'message' => $this->body,
             'cost' => $this->cost,
             'status' => $this->status,
+            'attempts' => $this->attempts,
+            'next_retry_at' => $this->next_retry_at,
             'created_at' => $this->created_at,
         ];
     }

@@ -10,6 +10,7 @@ return [
     'topics' => [
         'normal' => env('KAFKA_TOPIC_NORMAL', 'normal'),
         'express' => env('KAFKA_TOPIC_EXPRESS', 'express'),
+        'express_dlq' => env('KAFKA_TOPIC_EXPRESS_DLQ', 'express-dlq'),
     ],
 
     'connect_timeout' => (float) env('KAFKA_CONNECT_TIMEOUT', 3),
@@ -19,7 +20,7 @@ return [
     'auto_commit' => env('KAFKA_AUTO_COMMIT', true),
 
     'flush_retries' => 2,
-    
+
     'compression' => env('KAFKA_COMPRESSION_TYPE', 'none'),
 
     'message_id_key' => env('KAFKA_MESSAGE_ID_KEY', 'message-id'),

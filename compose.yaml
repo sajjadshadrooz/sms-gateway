@@ -111,6 +111,28 @@ services:
             kafka:
                 condition: service_healthy
 
+    scheduler:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        container_name: sms-gateway-scheduler
+        command: php artisan schedule:work
+        restart: unless-stopped
+        init: true
+        env_file:
+            - .env
+        environment:
+            DB_HOST: postgres
+            KAFKA_BROKERS: kafka:29092
+        volumes:
+            - .:/var/www/html
+            - /var/www/html/vendor
+        depends_on:
+            postgres:
+                condition: service_healthy
+            kafka:
+                condition: service_healthy
+
     sms-normal-worker:
         profiles:
             - normal

@@ -16,7 +16,24 @@ class KafkaSmsQueue implements SmsQueue
     {
         $topic = $message->type->topic();
 
-        $payload = json_encode([
+        $this->send($topic, $this->payloadFor($message), $this->partitionKey($message));
+    }
+
+    public function publishDeadLetter(array $payload, string $reason): void
+    {
+        $topic = (string) config('kafka.topics.express_dlq');
+
+        $key = isset($payload['id']) ? "message-{$payload['id']}" : null;
+
+        $this->send($topic, $payload, $key, [
+            'reason' => $reason,
+            'failed_at' => now()->toIso8601String(),
+        ]);
+    }
+
+    public function payloadFor(SmsMessage $message): array
+    {
+        return [
             'id' => $message->id,
             'consumer_id' => $message->consumer_id,
             'type' => $message->type->value,
@@ -25,10 +42,19 @@ class KafkaSmsQueue implements SmsQueue
             'cost' => $message->cost,
             'wallet_reservation_id' => $message->wallet_reservation_id,
             'accepted_at' => $message->created_at?->toIso8601String(),
-        ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, string>  $headers
+     */
+    private function send(string $topic, array $payload, ?string $key, array $headers = []): void
+    {
+        $value = json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
 
         try {
-            $this->producer->send($topic, $payload, $this->partitionKey($message));
+            $this->producer->send($topic, $value, $key, $headers);
         } catch (Throwable $e) {
             throw new SmsQueueUnavailableException($topic, $e);
         }

@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Actions\DispatchExpressSms;
+use App\Contracts\SmsQueue;
 use App\Enums\SmsMessageStatus;
 use App\Models\SmsMessage;
 use Illuminate\Console\Command;
@@ -16,7 +17,7 @@ class ConsumeExpressSms extends Command
 
     protected $description = 'Consume Express SMS messages from Kafka';
 
-    public function handle(DispatchExpressSms $dispatch): int
+    public function handle(DispatchExpressSms $dispatch, SmsQueue $queue): int
     {
         $topic = config('kafka.topics.express');
 
@@ -26,20 +27,27 @@ class ConsumeExpressSms extends Command
             ->withBrokers(config('kafka.brokers'))
             ->withConsumerGroupId('sms-express-consumer')
             ->withManualCommit()
-            ->withHandler(function ($message, $consumer) use ($dispatch) {
+            // An uncaught exception stops the worker with the offset uncommitted, so the
+            // message is reprocessed after restart instead of being skipped by a later commit.
+            ->stopOnFailure()
+            ->withHandler(function ($message, $consumer) use ($dispatch, $queue) {
                 $payload = $message->getBody();
+                $payload = is_array($payload) ? $payload : ['raw' => $payload];
 
                 $smsId = $payload['id'] ?? null;
+                $sms = $smsId ? SmsMessage::find($smsId) : null;
 
-                if (! $smsId) {
-                    Log::error('Invalid Express SMS message');
+                // Nothing in the database to settle: park the payload and move on.
+                if ($sms === null) {
+                    Log::error('Express SMS message does not match a stored message', [
+                        'sms_id' => $smsId,
+                    ]);
 
-                    throw new \RuntimeException(
-                        'Missing message_id in Kafka payload.'
-                    );
+                    $queue->publishDeadLetter($payload, 'unknown_message');
+                    $consumer->commit($message);
+
+                    return;
                 }
-
-                $sms = SmsMessage::findOrFail($smsId);
 
                 if ($sms->status === SmsMessageStatus::Queued) {
                     $sms->update(['status' => SmsMessageStatus::Processing]);

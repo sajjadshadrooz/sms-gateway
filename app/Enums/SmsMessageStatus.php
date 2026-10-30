@@ -8,6 +8,9 @@ enum SmsMessageStatus: string
 
     case Processing = 'processing';
 
+    /** A transient operator failure; the message will be republished at next_retry_at. */
+    case RetryScheduled = 'retry_scheduled';
+
     case Accepted = 'accepted';
 
     case Failed = 'failed';
