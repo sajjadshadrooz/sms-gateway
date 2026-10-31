@@ -57,9 +57,7 @@ class ConsumeExpressSms extends Command
                     return;
                 }
 
-                if ($sms->status === SmsMessageStatus::Queued) {
-                    $sms->update(['status' => SmsMessageStatus::Processing]);
-
+                if ($sms->status === SmsMessageStatus::Queued && $sms->claimForProcessing()) {
                     $events->record($sms, MessageEvent::Processing, [
                         'topic' => $message->getTopicName(),
                         'partition' => $message->getPartition(),

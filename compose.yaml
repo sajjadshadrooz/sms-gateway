@@ -124,6 +124,8 @@ services:
             DB_HOST: postgres
             KAFKA_BROKERS: kafka:29092
             CLICKHOUSE_URL: http://clickhouse:8123
+            # The fake operator sleeps per request; let workers call it concurrently.
+            PHP_CLI_SERVER_WORKERS: 4
         volumes:
             - .:/var/www/html          # live code edits, no rebuild needed
             - /var/www/html/vendor     # keep the image's vendor, not the host one
@@ -148,6 +150,8 @@ services:
             DB_HOST: postgres
             KAFKA_BROKERS: kafka:29092
             CLICKHOUSE_URL: http://clickhouse:8123
+            # localhost inside a worker is the worker itself, not the app serving the operator.
+            SMS_OPERATOR_URL: http://app:8000/provider/sms-operator/receive
         volumes:
             - .:/var/www/html
             - /var/www/html/vendor
@@ -201,6 +205,7 @@ services:
             DB_HOST: postgres
             KAFKA_BROKERS: kafka:29092
             CLICKHOUSE_URL: http://clickhouse:8123
+            SMS_OPERATOR_URL: http://app:8000/provider/sms-operator/receive
         volumes:
             - .:/var/www/html
             - /var/www/html/vendor

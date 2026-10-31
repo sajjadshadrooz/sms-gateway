@@ -11,3 +11,7 @@ Artisan::command('inspire', function () {
 Schedule::command('sms:republish-retries')
     ->everyFiveSeconds()
     ->withoutOverlapping();
+
+Schedule::command('sms:sweep-stalled')
+    ->everyMinute()
+    ->withoutOverlapping();

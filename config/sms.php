@@ -27,4 +27,11 @@ return [
         'republish_batch' => (int) env('SMS_RETRY_REPUBLISH_BATCH', 200),
     ],
 
+    'sweep' => [
+        'requeue_after_seconds' => (int) env('SMS_SWEEP_REQUEUE_AFTER_SECONDS', 120),
+
+        // How many messages each step of a single sweep run handles.
+        'batch' => (int) env('SMS_SWEEP_BATCH', 200),
+    ],
+
 ];

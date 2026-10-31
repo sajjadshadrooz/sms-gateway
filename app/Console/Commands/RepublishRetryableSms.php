@@ -6,6 +6,7 @@ use App\Contracts\MessageEventLog;
 use App\Contracts\SmsQueue;
 use App\Enums\MessageEvent;
 use App\Enums\SmsMessageStatus;
+use App\Exceptions\SmsQueueUnavailableException;
 use App\Models\SmsMessage;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -20,7 +21,7 @@ class RepublishRetryableSms extends Command
     {
         $limit = (int) ($this->option('limit') ?: config('sms.retry.republish_batch'));
 
-        $republished = DB::transaction(function () use ($queue, $limit) {
+        $due = DB::transaction(function () use ($limit) {
             $due = SmsMessage::query()
                 ->retryDue()
                 ->orderBy('next_retry_at')
@@ -34,23 +35,35 @@ class RepublishRetryableSms extends Command
                     'status' => SmsMessageStatus::Queued,
                     'next_retry_at' => null,
                 ]);
-
-                // Inside the transaction, like SendSms: a publish failure rolls the
-                // status back so the next run picks the message up again.
-                $queue->publish($sms);
             }
 
             return $due;
         });
 
-        // After the commit: a rolled-back batch must not appear in the history.
-        foreach ($republished as $sms) {
+        // Publish only once the queued status is committed: a worker that still saw
+        // retry_scheduled would skip the delivery and commit its offset.
+        $republished = 0;
+
+        foreach ($due as $sms) {
+            try {
+                $queue->publish($sms);
+            } catch (SmsQueueUnavailableException $exception) {
+                // Due again right away, so the next run picks it up.
+                $sms->update([
+                    'status' => SmsMessageStatus::RetryScheduled,
+                    'next_retry_at' => now(),
+                ]);
+
+                $this->error("Could not republish SMS {$sms->id}: {$exception->getMessage()}");
+
+                continue;
+            }
+
             $events->record($sms, MessageEvent::Republished, ['topic' => $sms->type->topic()]);
+            $republished++;
         }
 
-        $count = $republished->count();
-
-        $this->info("Republished {$count} SMS message(s).");
+        $this->info("Republished {$republished} SMS message(s).");
 
         return self::SUCCESS;
     }

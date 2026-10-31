@@ -63,4 +63,33 @@ class SmsMessage extends Model
             ->where('status', SmsMessageStatus::RetryScheduled)
             ->where('next_retry_at', '<=', now());
     }
+
+    /**
+     * Queued messages untouched for longer than the given number of seconds:
+     * most likely never published, or lost before a worker claimed them.
+     */
+    #[Scope]
+    protected function staleQueued(Builder $query, int $seconds): Builder
+    {
+        return $query
+            ->where('status', SmsMessageStatus::Queued)
+            ->where('updated_at', '<=', now()->subSeconds($seconds));
+    }
+
+    /**
+     * Move a queued message to processing, atomically: false when someone else
+     * changed its status first (another delivery, or the stalled-message sweep).
+     * The model is refreshed either way so callers act on the current status.
+     */
+    public function claimForProcessing(): bool
+    {
+        $claimed = static::query()
+            ->whereKey($this->getKey())
+            ->where('status', SmsMessageStatus::Queued)
+            ->update(['status' => SmsMessageStatus::Processing, 'updated_at' => now()]) === 1;
+
+        $this->refresh();
+
+        return $claimed;
+    }
 }

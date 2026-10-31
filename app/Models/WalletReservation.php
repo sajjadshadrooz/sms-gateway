@@ -60,6 +60,13 @@ class WalletReservation extends Model
         });
     }
 
+    public function expire(): void
+    {
+        $this->settle(WalletReservationStatus::Expired, function (Wallet $wallet, self $reservation) {
+            $wallet->decrement('reserved_balance', $reservation->amount);
+        });
+    }
+
     public function confirm(?string $description = null): void
     {
         $this->settle(WalletReservationStatus::Confirmed, function (Wallet $wallet, self $reservation) use ($description) {
