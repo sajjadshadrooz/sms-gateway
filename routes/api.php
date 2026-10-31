@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\ExpressSmsMessageController;
+use App\Http\Controllers\Api\SmsEventController;
 use App\Http\Controllers\Api\SmsMessageController;
 use App\Http\Controllers\Api\WalletChargeController;
 use App\Http\Controllers\Api\WalletTransactionController;
@@ -12,6 +13,9 @@ Route::prefix('consumers/{consumerId}')->name('consumers.')->group(function () {
 
     Route::post('express-sms-messages', [ExpressSmsMessageController::class, 'store'])
         ->name('express-sms-messages.store');
+
+    Route::get('sms-events', [SmsEventController::class, 'index'])
+        ->name('sms-events.index');
 
     Route::post('wallet/charges', [WalletChargeController::class, 'store'])
         ->name('wallet.charges.store');

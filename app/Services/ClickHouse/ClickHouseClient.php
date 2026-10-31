@@ -55,6 +55,22 @@ class ClickHouseClient
             ->throw();
     }
 
+    public function select(string $sql, array $bindings = []): array
+    {
+        $query = ['output_format_json_quote_64bit_integers' => 0];
+
+        foreach ($bindings as $name => $value) {
+            $query["param_{$name}"] = $value;
+        }
+
+        return $this->request()
+            ->withQueryParameters($query)
+            ->withBody($sql.' FORMAT JSON', 'text/plain')
+            ->post('')
+            ->throw()
+            ->json('data', []);
+    }
+
     public function database(): string
     {
         return (string) config('clickhouse.database');
