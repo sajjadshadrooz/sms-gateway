@@ -1,58 +1,74 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# SMS Gateway
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+A Laravel-based prepaid SMS Gateway designed for high-volume SMS traffic using an **asynchronous**, **event-driven architecture**. It supports separate Normal and Express delivery pipelines, wallet-based billing, automatic retries, and searchable message-event history.
 
-## About Laravel
+![SMS Gateway Architecture](docs/images/structure.png)
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Features
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+- **Normal & Express SMS Manager:** Isolated Kafka topics, consumer groups, and worker pools.
+- **Wallet Manager:** Credit top-ups, atomic balance reservations, transaction history, and automatic reservation settlement.
+- **Asynchronous Processing:** API requests return `202 Accepted` without waiting for the SMS operator.
+- **Retry Mechanism:** Exponential backoff for transient operator failures.
+- **Dead-Letter Queues:** Separate DLQ topics for Normal and Express messages.
+- **Event History:** Asynchronous event loging into ClickHouse with kafka.
+- **Recovery Jobs:** Scheduled retry republishing.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## Data Model
 
-## Learning Laravel
+![SMS Gateway Data Model](docs/images/data_model.png)
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+| Table                 | Purpose                                             |
+| --------------------- | --------------------------------------------------- |
+| `consumers`           | user entity                                         |
+| `wallets`             | Wallet balance and reserved balance                 |
+| `wallet_reservations` | Credit holds associated with SMS messages           |
+| `wallet_transactions` | Credit/debit ledger and resulting balance           |
+| `sms_messages`        | SMS content, type, cost, status, and retry metadata |
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+### ClickHouse
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+`sms_message_events` table:
 
-## Agentic Development
+- Message and consumer identifiers
+- Event type and SMS status
+- Recipient and message metadata
+- Attempt count and retry timestamp
+- Error details and HTTP status
+- Event timestamp and contextual metadata
 
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+Events are consumed from Kafka and inserted into ClickHouse in batches.
 
-```bash
-composer require laravel/boost --dev
+## Message Processing
 
-php artisan boost:install
-```
+1. The API validates the request and checks the consumer's eligibility and available credits.
+2. PostgreSQL stores the SMS and reserves the required credits.
+3. The job is published to the appropriate Kafka topic.
+4. The API returns `202 Accepted`.
+5. A dedicated worker consumes the message and calls the SMS operator.
+6. On operator acceptance, the reservation is confirmed and the wallet is debited.
+7. Transient failures are retried with exponential backoff.
+8. Permanent failures, exhausted retries, or expired reservations lead to failure handling and credit release.
+9. Lifecycle events are published asynchronously and stored in ClickHouse by a separate writer.
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+## Kafka Topics
 
-## Contributing
+| Topic                | Purpose                                            |
+| -------------------- | -------------------------------------------------- |
+| `normal`             | Normal SMS jobs                                    |
+| `express`            | Express SMS jobs                                   |
+| `normal-dlq`         | Normal messages routed to the dead-letter queue    |
+| `express-dlq`        | Express messages routed to the dead-letter queue   |
+| `sms-message-events` | Lifecycle events consumed by the ClickHouse writer |
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+## APP Directory
 
-## Code of Conduct
+- **Actions:** Application use cases and business rules.
+- **Contracts:** Interfaces for queue and event-log integrations.
+- **Services:** Kafka, ClickHouse, and SMS operator adapters.
+- **Models & Enums:** Domain entities and state definitions.
+- **Console Commands:** Kafka consumers, event writer, retry republisher, and stalled-message recovery.
+- **Migrations & Factories:** Database schema and test-data generation.
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
-
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+|     |
+| --- |
