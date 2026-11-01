@@ -229,6 +229,31 @@ services:
             clickhouse-migrate:
                 condition: service_completed_successfully
 
+    message-event-writer:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        container_name: sms-gateway-message-event-writer
+        command: php artisan clickhouse:write-events
+        restart: unless-stopped
+        init: true
+        env_file:
+            - .env
+        environment:
+            DB_HOST: postgres
+            KAFKA_BROKERS: kafka:29092
+            CLICKHOUSE_URL: http://clickhouse:8123
+        volumes:
+            - .:/var/www/html
+            - /var/www/html/vendor
+        depends_on:
+            postgres:
+                condition: service_healthy
+            kafka:
+                condition: service_healthy
+            clickhouse-migrate:
+                condition: service_completed_successfully
+
 volumes:
     postgres-data:
     kafka-data:

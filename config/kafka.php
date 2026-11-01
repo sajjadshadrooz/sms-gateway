@@ -12,7 +12,10 @@ return [
         'normal_dlq' => env('KAFKA_TOPIC_NORMAL_DLQ', 'normal-dlq'),
         'express' => env('KAFKA_TOPIC_EXPRESS', 'express'),
         'express_dlq' => env('KAFKA_TOPIC_EXPRESS_DLQ', 'express-dlq'),
+        'message_events' => env('KAFKA_TOPIC_MESSAGE_EVENTS', 'sms-message-events'),
     ],
+
+    'message_events_timeout' => (float) env('KAFKA_MESSAGE_EVENTS_TIMEOUT', 30),
 
     'connect_timeout' => (float) env('KAFKA_CONNECT_TIMEOUT', 3),
     'send_timeout' => (float) env('KAFKA_SEND_TIMEOUT', 5),
