@@ -5,17 +5,18 @@ namespace App\Services\ClickHouse;
 use App\Contracts\MessageEventLog;
 use App\Enums\MessageEvent;
 use App\Models\SmsMessage;
+use App\Services\Kafka\KafkaEventProducer;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
 class ClickHouseMessageEventLog implements MessageEventLog
 {
-    public function __construct(private readonly ClickHouseClient $clickHouse) {}
+    public function __construct(private readonly KafkaEventProducer $producer) {}
 
     public function record(SmsMessage $sms, MessageEvent $event, array $context = []): void
     {
-        $this->insert([
+        $this->publish([
             'occurred_at' => $this->timestamp(now()),
             'event' => $event->value,
             'sms_id' => (int) $sms->id,
@@ -39,7 +40,7 @@ class ClickHouseMessageEventLog implements MessageEventLog
     {
         $smsId = $payload['id'] ?? null;
 
-        $this->insert([
+        $this->publish([
             'occurred_at' => $this->timestamp(now()),
             'event' => $event->value,
             'sms_id' => is_numeric($smsId) ? (int) $smsId : 0,
@@ -59,17 +60,16 @@ class ClickHouseMessageEventLog implements MessageEventLog
         ]);
     }
 
-    /**
-     * The history must never take the sending pipeline down with it.
-     *
-     * @param  array<string, mixed>  $row
-     */
-    private function insert(array $row): void
+    private function publish(array $row): void
     {
         try {
-            $this->clickHouse->insert((string) config('clickhouse.tables.message_events'), [$row]);
+            $this->producer->send(
+                (string) config('kafka.topics.message_events'),
+                json_encode($row, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+                $row['sms_id'] > 0 ? "message-{$row['sms_id']}" : null,
+            );
         } catch (Throwable $exception) {
-            Log::warning('SMS message event could not be written to ClickHouse', [
+            Log::warning('SMS message event could not be published to Kafka', [
                 'event' => $row['event'],
                 'sms_id' => $row['sms_id'],
                 'error' => $exception->getMessage(),

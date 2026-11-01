@@ -10,12 +10,6 @@ use Illuminate\Support\Facades\Http;
 
 class ClickHouseClient
 {
-    /**
-     * Run a statement that returns no rows (DDL, SET, ...).
-     *
-     * @throws ConnectionException
-     * @throws RequestException
-     */
     public function execute(string $sql, bool $withDatabase = true): void
     {
         $this->request($withDatabase)
@@ -23,15 +17,6 @@ class ClickHouseClient
             ->post('')
             ->throw();
     }
-
-    /**
-     * Insert rows into a table of the configured database.
-     *
-     * @param  list<array<string, mixed>>  $rows
-     *
-     * @throws ConnectionException
-     * @throws RequestException
-     */
     public function insert(string $table, array $rows): Response
     {
         $body = implode("\n", array_map(
@@ -45,7 +30,7 @@ class ClickHouseClient
 
         if (config('clickhouse.async_insert')) {
             $query['async_insert'] = 1;
-            $query['wait_for_async_insert'] = 0;
+            $query['wait_for_async_insert'] = 1;
         }
 
         return $this->request()
