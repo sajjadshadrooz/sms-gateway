@@ -1,0 +1,541 @@
+{
+  "info": {
+    "name": "SMS Gateway",
+    "description": "HTTP API of the SMS Gateway. Set `baseUrl` and `consumerId` in the collection variables (or an environment). The OpenAPI source of truth is docs/apis/api.yaml.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8000" },
+    { "key": "consumerId", "value": "1" },
+    { "key": "smsId", "value": "" }
+  ],
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (pm.response.headers.get('Content-Type') && pm.response.headers.get('Content-Type').includes('application/json')) {",
+          "    pm.test('response is JSON', function () { pm.response.json(); });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Wallet",
+      "item": [
+        {
+          "name": "Charge wallet",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/consumers/{{consumerId}}/wallet/charges",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "consumers", "{{consumerId}}", "wallet", "charges"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 5000,\n  \"description\": \"Top-up via bank transfer\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Credits `amount` to the consumer's wallet and records a `credit` transaction. Returns the transaction under `data` and the updated wallet under `wallet`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', function () { pm.response.to.have.status(201); });",
+                  "const body = pm.response.json();",
+                  "pm.test('has transaction and wallet', function () {",
+                  "    pm.expect(body.data.type).to.eql('credit');",
+                  "    pm.expect(body.wallet).to.have.keys('balance', 'reserved_balance', 'available_balance');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "201 Created",
+              "originalRequest": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "url": { "raw": "{{baseUrl}}/api/consumers/{{consumerId}}/wallet/charges" },
+                "body": { "mode": "raw", "raw": "{\n  \"amount\": 5000,\n  \"description\": \"Top-up via bank transfer\"\n}" }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"data\": {\n    \"id\": 17,\n    \"type\": \"credit\",\n    \"amount\": 5000,\n    \"balance_after\": 7300,\n    \"description\": \"Top-up via bank transfer\",\n    \"created_at\": \"2026-11-01T09:00:12.000000Z\"\n  },\n  \"wallet\": {\n    \"balance\": 7300,\n    \"reserved_balance\": 200,\n    \"available_balance\": 7100\n  }\n}"
+            },
+            {
+              "name": "404 Consumer not found",
+              "originalRequest": {
+                "method": "POST",
+                "url": { "raw": "{{baseUrl}}/api/consumers/999999/wallet/charges" },
+                "body": { "mode": "raw", "raw": "{\n  \"amount\": 5000\n}" }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"message\": \"Consumer not found.\",\n  \"code\": \"consumer_not_found\"\n}"
+            },
+            {
+              "name": "422 Validation error",
+              "originalRequest": {
+                "method": "POST",
+                "url": { "raw": "{{baseUrl}}/api/consumers/{{consumerId}}/wallet/charges" },
+                "body": { "mode": "raw", "raw": "{\n  \"amount\": 0\n}" }
+              },
+              "status": "Unprocessable Content",
+              "code": 422,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"message\": \"The amount field must be at least 1.\",\n  \"errors\": {\n    \"amount\": [\n      \"The amount field must be at least 1.\"\n    ]\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "List wallet transactions",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/consumers/{{consumerId}}/wallet/transactions?page=1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "consumers", "{{consumerId}}", "wallet", "transactions"],
+              "query": [{ "key": "page", "value": "1" }]
+            },
+            "description": "Paginated wallet transactions, newest first, 15 per page."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('is paginated', function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.data).to.be.an('array');",
+                  "    pm.expect(body.meta).to.have.property('total');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "url": { "raw": "{{baseUrl}}/api/consumers/{{consumerId}}/wallet/transactions?page=1" }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"data\": [\n    {\n      \"id\": 18,\n      \"type\": \"debit\",\n      \"amount\": 100,\n      \"balance_after\": 7200,\n      \"description\": null,\n      \"created_at\": \"2026-11-01T10:15:32.000000Z\"\n    },\n    {\n      \"id\": 17,\n      \"type\": \"credit\",\n      \"amount\": 5000,\n      \"balance_after\": 7300,\n      \"description\": \"Top-up via bank transfer\",\n      \"created_at\": \"2026-11-01T09:00:12.000000Z\"\n    }\n  ],\n  \"links\": {\n    \"first\": \"http://localhost:8000/api/consumers/1/wallet/transactions?page=1\",\n    \"last\": \"http://localhost:8000/api/consumers/1/wallet/transactions?page=1\",\n    \"prev\": null,\n    \"next\": null\n  },\n  \"meta\": {\n    \"current_page\": 1,\n    \"from\": 1,\n    \"last_page\": 1,\n    \"path\": \"http://localhost:8000/api/consumers/1/wallet/transactions\",\n    \"per_page\": 15,\n    \"to\": 2,\n    \"total\": 2\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "SMS",
+      "item": [
+        {
+          "name": "Send normal SMS",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/consumers/{{consumerId}}/sms-messages",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "consumers", "{{consumerId}}", "sms-messages"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"to\": \"+989121234567\",\n  \"message\": \"Your verification code is 123456\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Reserves the normal SMS price on the wallet, stores the message as `queued` and publishes it to Kafka. Delivery is asynchronous; poll **List SMS events** to follow it. The returned `id` is saved to the `smsId` collection variable."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 202', function () { pm.response.to.have.status(202); });",
+                  "const body = pm.response.json();",
+                  "pm.test('message is queued', function () {",
+                  "    pm.expect(body.data.type).to.eql('normal');",
+                  "    pm.expect(body.data.status).to.eql('queued');",
+                  "});",
+                  "if (body.data && body.data.id) { pm.collectionVariables.set('smsId', body.data.id); }"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "202 Accepted",
+              "originalRequest": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "url": { "raw": "{{baseUrl}}/api/consumers/{{consumerId}}/sms-messages" },
+                "body": { "mode": "raw", "raw": "{\n  \"to\": \"+989121234567\",\n  \"message\": \"Your verification code is 123456\"\n}" }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"data\": {\n    \"id\": 42,\n    \"type\": \"normal\",\n    \"to\": \"+989121234567\",\n    \"message\": \"Your verification code is 123456\",\n    \"cost\": 100,\n    \"status\": \"queued\",\n    \"attempts\": 0,\n    \"next_retry_at\": null,\n    \"created_at\": \"2026-11-01T10:14:29.000000Z\"\n  }\n}"
+            },
+            {
+              "name": "402 Insufficient balance",
+              "originalRequest": {
+                "method": "POST",
+                "url": { "raw": "{{baseUrl}}/api/consumers/{{consumerId}}/sms-messages" },
+                "body": { "mode": "raw", "raw": "{\n  \"to\": \"+989121234567\",\n  \"message\": \"Your verification code is 123456\"\n}" }
+              },
+              "status": "Payment Required",
+              "code": 402,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"message\": \"Insufficient wallet balance.\",\n  \"code\": \"insufficient_balance\",\n  \"required\": 100,\n  \"available\": 40\n}"
+            },
+            {
+              "name": "422 Validation error",
+              "originalRequest": {
+                "method": "POST",
+                "url": { "raw": "{{baseUrl}}/api/consumers/{{consumerId}}/sms-messages" },
+                "body": { "mode": "raw", "raw": "{\n  \"to\": \"12345\",\n  \"message\": \"hi\"\n}" }
+              },
+              "status": "Unprocessable Content",
+              "code": 422,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"message\": \"The recipient must be a phone number of 10 to 15 digits, optionally prefixed with +.\",\n  \"errors\": {\n    \"to\": [\n      \"The recipient must be a phone number of 10 to 15 digits, optionally prefixed with +.\"\n    ]\n  }\n}"
+            },
+            {
+              "name": "503 Queue unavailable",
+              "originalRequest": {
+                "method": "POST",
+                "url": { "raw": "{{baseUrl}}/api/consumers/{{consumerId}}/sms-messages" },
+                "body": { "mode": "raw", "raw": "{\n  \"to\": \"+989121234567\",\n  \"message\": \"Your verification code is 123456\"\n}" }
+              },
+              "status": "Service Unavailable",
+              "code": 503,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"message\": \"The message could not be queued for delivery. Please try again.\",\n  \"code\": \"queue_unavailable\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Send express SMS",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/consumers/{{consumerId}}/express-sms-messages",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "consumers", "{{consumerId}}", "express-sms-messages"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"to\": \"+989121234567\",\n  \"message\": \"Your verification code is 123456\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Same as a normal SMS but priced as `express` and published to the express topic. The consumer must have the express service enabled, otherwise `403 express_service_is_not_enabled` is returned."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 202', function () { pm.response.to.have.status(202); });",
+                  "const body = pm.response.json();",
+                  "pm.test('message is queued', function () {",
+                  "    pm.expect(body.data.type).to.eql('express');",
+                  "    pm.expect(body.data.status).to.eql('queued');",
+                  "});",
+                  "if (body.data && body.data.id) { pm.collectionVariables.set('smsId', body.data.id); }"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "202 Accepted",
+              "originalRequest": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "url": { "raw": "{{baseUrl}}/api/consumers/{{consumerId}}/express-sms-messages" },
+                "body": { "mode": "raw", "raw": "{\n  \"to\": \"+989121234567\",\n  \"message\": \"Your verification code is 123456\"\n}" }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"data\": {\n    \"id\": 43,\n    \"type\": \"express\",\n    \"to\": \"+989121234567\",\n    \"message\": \"Your verification code is 123456\",\n    \"cost\": 100,\n    \"status\": \"queued\",\n    \"attempts\": 0,\n    \"next_retry_at\": null,\n    \"created_at\": \"2026-11-01T10:14:29.000000Z\"\n  }\n}"
+            },
+            {
+              "name": "403 Express service not enabled",
+              "originalRequest": {
+                "method": "POST",
+                "url": { "raw": "{{baseUrl}}/api/consumers/{{consumerId}}/express-sms-messages" },
+                "body": { "mode": "raw", "raw": "{\n  \"to\": \"+989121234567\",\n  \"message\": \"Your verification code is 123456\"\n}" }
+              },
+              "status": "Forbidden",
+              "code": 403,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"message\": \"The express service is not enabled for this consumer.\",\n  \"code\": \"express_service_is_not_enabled\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "List SMS events",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/consumers/{{consumerId}}/sms-events?sms_id={{smsId}}&page=1&per_page=15",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "consumers", "{{consumerId}}", "sms-events"],
+              "query": [
+                { "key": "sms_id", "value": "{{smsId}}", "description": "Only events of this message." },
+                { "key": "event", "value": "accepted", "description": "queued | processing | retry_scheduled | republished | accepted | failed", "disabled": true },
+                { "key": "type", "value": "normal", "description": "normal | express", "disabled": true },
+                { "key": "from", "value": "2026-11-01T00:00:00Z", "description": "Events at or after this moment (converted to UTC).", "disabled": true },
+                { "key": "to", "value": "2026-11-02T00:00:00Z", "description": "Events at or before this moment; must not be earlier than from.", "disabled": true },
+                { "key": "page", "value": "1" },
+                { "key": "per_page", "value": "15", "description": "1 to 100" }
+              ]
+            },
+            "description": "Paginated delivery events of the consumer's messages, newest first, read from ClickHouse. Only consumer-visible events are returned. `sms_id` defaults to the id saved by the last **Send** request; clear it to list events of every message."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('is paginated', function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.data).to.be.an('array');",
+                  "    pm.expect(body.meta).to.have.property('total');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "url": { "raw": "{{baseUrl}}/api/consumers/{{consumerId}}/sms-events?sms_id=42" }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"data\": [\n    {\n      \"sms_id\": 42,\n      \"event\": \"accepted\",\n      \"type\": \"normal\",\n      \"status\": \"accepted\",\n      \"to\": \"+989121234567\",\n      \"attempts\": 1,\n      \"next_retry_at\": null,\n      \"reason\": null,\n      \"http_status\": 200,\n      \"occurred_at\": \"2026-11-01T10:15:32.412000Z\"\n    },\n    {\n      \"sms_id\": 42,\n      \"event\": \"retry_scheduled\",\n      \"type\": \"normal\",\n      \"status\": \"retry_scheduled\",\n      \"to\": \"+989121234567\",\n      \"attempts\": 1,\n      \"next_retry_at\": \"2026-11-01T10:15:30.000000Z\",\n      \"reason\": \"operator_unreachable\",\n      \"http_status\": null,\n      \"occurred_at\": \"2026-11-01T10:14:30.118000Z\"\n    },\n    {\n      \"sms_id\": 42,\n      \"event\": \"queued\",\n      \"type\": \"normal\",\n      \"status\": \"queued\",\n      \"to\": \"+989121234567\",\n      \"attempts\": 0,\n      \"next_retry_at\": null,\n      \"reason\": null,\n      \"http_status\": null,\n      \"occurred_at\": \"2026-11-01T10:14:29.902000Z\"\n    }\n  ],\n  \"links\": {\n    \"first\": \"http://localhost:8000/api/consumers/1/sms-events?page=1\",\n    \"last\": \"http://localhost:8000/api/consumers/1/sms-events?page=1\",\n    \"prev\": null,\n    \"next\": null\n  },\n  \"meta\": {\n    \"current_page\": 1,\n    \"from\": 1,\n    \"last_page\": 1,\n    \"path\": \"http://localhost:8000/api/consumers/1/sms-events\",\n    \"per_page\": 15,\n    \"to\": 3,\n    \"total\": 3\n  }\n}"
+            },
+            {
+              "name": "503 Message history unavailable",
+              "originalRequest": {
+                "method": "GET",
+                "url": { "raw": "{{baseUrl}}/api/consumers/{{consumerId}}/sms-events" }
+              },
+              "status": "Service Unavailable",
+              "code": 503,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"message\": \"The message history is temporarily unavailable. Please try again.\",\n  \"code\": \"message_history_unavailable\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Liveness",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/up",
+              "host": ["{{baseUrl}}"],
+              "path": ["up"]
+            },
+            "description": "Laravel's built-in health route. Returns 200 once the app boots; does not check dependencies."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('status is 200', function () { pm.response.to.have.status(200); });"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Readiness",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/ready",
+              "host": ["{{baseUrl}}"],
+              "path": ["ready"]
+            },
+            "description": "Checks the database and Kafka. Returns 503 when either is unreachable."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200 or 503', function () { pm.expect(pm.response.code).to.be.oneOf([200, 503]); });",
+                  "pm.test('reports checks', function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.checks).to.have.keys('database', 'kafka');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "200 Ready",
+              "originalRequest": { "method": "GET", "url": { "raw": "{{baseUrl}}/ready" } },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": \"ready\",\n  \"checks\": {\n    \"database\": { \"status\": \"ok\" },\n    \"kafka\": { \"status\": \"ok\" }\n  }\n}"
+            },
+            {
+              "name": "503 Not ready",
+              "originalRequest": { "method": "GET", "url": { "raw": "{{baseUrl}}/ready" } },
+              "status": "Service Unavailable",
+              "code": 503,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": \"not_ready\",\n  \"checks\": {\n    \"database\": { \"status\": \"ok\" },\n    \"kafka\": { \"status\": \"failed\" }\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "SMS operator (fake)",
+      "description": "Stand-in for the external SMS operator used in local and test environments. The gateway's workers call this; API consumers never do.",
+      "item": [
+        {
+          "name": "Receive SMS",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/provider/sms-operator/receive",
+              "host": ["{{baseUrl}}"],
+              "path": ["provider", "sms-operator", "receive"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message_id\": 42,\n  \"to\": \"+989121234567\",\n  \"message\": \"Your verification code is 123456\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Deduplicates by `message_id` for 24 hours (`duplicate: true` on repeats). With `SMS_OPERATOR_FAKE_ENABLED=true` it adds random latency and fails a configured percentage of requests with 500."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200 or simulated 500', function () { pm.expect(pm.response.code).to.be.oneOf([200, 500]); });",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test('received', function () { pm.expect(pm.response.json().code).to.eql('sms_message_received'); });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "200 Received",
+              "originalRequest": {
+                "method": "POST",
+                "url": { "raw": "{{baseUrl}}/provider/sms-operator/receive" },
+                "body": { "mode": "raw", "raw": "{\n  \"message_id\": 42,\n  \"to\": \"+989121234567\",\n  \"message\": \"Your verification code is 123456\"\n}" }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": \"ok\",\n  \"message\": \"SMS message received.\",\n  \"code\": \"sms_message_received\",\n  \"duplicate\": false\n}"
+            },
+            {
+              "name": "400 Invalid request",
+              "originalRequest": {
+                "method": "POST",
+                "url": { "raw": "{{baseUrl}}/provider/sms-operator/receive" },
+                "body": { "mode": "raw", "raw": "{\n  \"message_id\": 42\n}" }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": \"error\",\n  \"message\": \"Invalid SMS request.\",\n  \"code\": \"invalid_request\",\n  \"errors\": {\n    \"to\": [\"The to field is required.\"],\n    \"message\": [\"The message field is required.\"]\n  }\n}"
+            },
+            {
+              "name": "500 Simulated operator failure",
+              "originalRequest": {
+                "method": "POST",
+                "url": { "raw": "{{baseUrl}}/provider/sms-operator/receive" },
+                "body": { "mode": "raw", "raw": "{\n  \"message_id\": 42,\n  \"to\": \"+989121234567\",\n  \"message\": \"Your verification code is 123456\"\n}" }
+              },
+              "status": "Internal Server Error",
+              "code": 500,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": \"error\",\n  \"message\": \"SMS operator is temporarily unavailable.\",\n  \"code\": \"operator_temporarily_unavailable\"\n}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

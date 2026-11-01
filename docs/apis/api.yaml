@@ -1,0 +1,794 @@
+openapi: 3.1.0
+info:
+  title: SMS Gateway API
+  version: 1.0.0
+  description: |
+    HTTP API of the SMS Gateway.
+
+    Consumers charge a wallet, send normal or express SMS messages, and inspect
+    the delivery event log of their messages. Sending is asynchronous: the API
+    reserves the message cost on the wallet, stores the message, publishes it to
+    Kafka and returns `202 Accepted`. Workers deliver the message to the SMS
+    operator later; follow its progress through `GET /consumers/{consumerId}/sms-events`.
+
+    There is no authentication on these endpoints. The consumer is identified by
+    the `consumerId` path parameter.
+
+    Error responses are JSON objects with a human-readable `message` and a stable
+    machine-readable `code`. Validation failures use Laravel's standard
+    `422 Unprocessable Content` shape.
+servers:
+  - url: http://localhost:8000
+    description: Local development
+
+tags:
+  - name: SMS
+    description: Queue SMS messages for delivery.
+  - name: SMS events
+    description: Delivery event history of a consumer's messages (read from ClickHouse).
+  - name: Wallet
+    description: Wallet charges and transaction history.
+  - name: Health
+    description: Liveness and readiness probes.
+  - name: SMS operator (fake)
+    description: |
+      Endpoint that stands in for the external SMS operator in local and test
+      environments. The gateway's workers call it; API consumers never do.
+
+paths:
+  /api/consumers/{consumerId}/sms-messages:
+    post:
+      tags: [SMS]
+      summary: Send a normal SMS
+      description: |
+        Reserves the normal SMS price on the consumer's wallet, stores the message
+        with status `queued` and publishes it to the normal Kafka topic.
+        The message is delivered asynchronously.
+      operationId: sendSms
+      parameters:
+        - $ref: '#/components/parameters/ConsumerId'
+      requestBody:
+        $ref: '#/components/requestBodies/SendSms'
+      responses:
+        '202':
+          $ref: '#/components/responses/SmsAccepted'
+        '402':
+          $ref: '#/components/responses/InsufficientBalance'
+        '404':
+          $ref: '#/components/responses/ConsumerNotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/QueueUnavailable'
+
+  /api/consumers/{consumerId}/express-sms-messages:
+    post:
+      tags: [SMS]
+      summary: Send an express SMS
+      description: |
+        Same flow as a normal SMS, but the message is priced as `express` and
+        published to the express Kafka topic. The consumer must have the express
+        service enabled (`has_express_service`), otherwise `403` is returned.
+      operationId: sendExpressSms
+      parameters:
+        - $ref: '#/components/parameters/ConsumerId'
+      requestBody:
+        $ref: '#/components/requestBodies/SendSms'
+      responses:
+        '202':
+          $ref: '#/components/responses/SmsAccepted'
+        '402':
+          $ref: '#/components/responses/InsufficientBalance'
+        '403':
+          description: The express service is not enabled for this consumer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                message: The express service is not enabled for this consumer.
+                code: express_service_is_not_enabled
+        '404':
+          $ref: '#/components/responses/ConsumerNotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/QueueUnavailable'
+
+  /api/consumers/{consumerId}/sms-events:
+    get:
+      tags: [SMS events]
+      summary: List SMS delivery events
+      description: |
+        Paginated list of delivery events for the consumer's messages, newest
+        first. Only consumer-visible events are returned
+        (`queued`, `processing`, `retry_scheduled`, `republished`, `accepted`, `failed`).
+        Data comes from the ClickHouse event log and may lag the write path by a
+        few seconds.
+      operationId: listSmsEvents
+      parameters:
+        - $ref: '#/components/parameters/ConsumerId'
+        - name: sms_id
+          in: query
+          description: Only events of this message.
+          schema:
+            type: integer
+            minimum: 1
+        - name: event
+          in: query
+          description: Only events of this kind.
+          schema:
+            $ref: '#/components/schemas/SmsEventKind'
+        - name: type
+          in: query
+          description: Only messages of this type.
+          schema:
+            $ref: '#/components/schemas/SmsType'
+        - name: from
+          in: query
+          description: Only events that occurred at or after this moment. Any parseable date or time is accepted and converted to UTC.
+          schema:
+            type: string
+            format: date-time
+          example: '2026-11-01T00:00:00Z'
+        - name: to
+          in: query
+          description: Only events that occurred at or before this moment. Must not be earlier than `from`.
+          schema:
+            type: string
+            format: date-time
+          example: '2026-11-02T00:00:00Z'
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 15
+      responses:
+        '200':
+          description: Page of events.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/SmsEvent'
+                  - $ref: '#/components/schemas/Pagination'
+              example:
+                data:
+                  - sms_id: 42
+                    event: accepted
+                    type: normal
+                    status: accepted
+                    to: '+989121234567'
+                    attempts: 1
+                    next_retry_at: null
+                    reason: null
+                    http_status: 200
+                    occurred_at: '2026-11-01T10:15:32.412000Z'
+                  - sms_id: 42
+                    event: retry_scheduled
+                    type: normal
+                    status: retry_scheduled
+                    to: '+989121234567'
+                    attempts: 1
+                    next_retry_at: '2026-11-01T10:15:30.000000Z'
+                    reason: operator_unreachable
+                    http_status: null
+                    occurred_at: '2026-11-01T10:14:30.118000Z'
+                  - sms_id: 42
+                    event: queued
+                    type: normal
+                    status: queued
+                    to: '+989121234567'
+                    attempts: 0
+                    next_retry_at: null
+                    reason: null
+                    http_status: null
+                    occurred_at: '2026-11-01T10:14:29.902000Z'
+                links:
+                  first: http://localhost:8000/api/consumers/1/sms-events?page=1
+                  last: http://localhost:8000/api/consumers/1/sms-events?page=1
+                  prev: null
+                  next: null
+                meta:
+                  current_page: 1
+                  from: 1
+                  last_page: 1
+                  path: http://localhost:8000/api/consumers/1/sms-events
+                  per_page: 15
+                  to: 3
+                  total: 3
+        '404':
+          $ref: '#/components/responses/ConsumerNotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: The ClickHouse event log could not be read.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                message: The message history is temporarily unavailable. Please try again.
+                code: message_history_unavailable
+
+  /api/consumers/{consumerId}/wallet/charges:
+    post:
+      tags: [Wallet]
+      summary: Charge the wallet
+      description: Credits `amount` to the consumer's wallet and records a `credit` transaction.
+      operationId: chargeWallet
+      parameters:
+        - $ref: '#/components/parameters/ConsumerId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount]
+              properties:
+                amount:
+                  type: integer
+                  minimum: 1
+                  description: Amount to credit, in the wallet's smallest unit.
+                description:
+                  type: [string, 'null']
+                  maxLength: 255
+            example:
+              amount: 5000
+              description: Top-up via bank transfer
+      responses:
+        '201':
+          description: Wallet charged.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, wallet]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/WalletTransaction'
+                  wallet:
+                    $ref: '#/components/schemas/Wallet'
+              example:
+                data:
+                  id: 17
+                  type: credit
+                  amount: 5000
+                  balance_after: 7300
+                  description: Top-up via bank transfer
+                  created_at: '2026-11-01T09:00:12.000000Z'
+                wallet:
+                  balance: 7300
+                  reserved_balance: 200
+                  available_balance: 7100
+        '404':
+          $ref: '#/components/responses/ConsumerNotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/consumers/{consumerId}/wallet/transactions:
+    get:
+      tags: [Wallet]
+      summary: List wallet transactions
+      description: Paginated wallet transactions of the consumer, newest first, 15 per page.
+      operationId: listWalletTransactions
+      parameters:
+        - $ref: '#/components/parameters/ConsumerId'
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+      responses:
+        '200':
+          description: Page of transactions.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/WalletTransaction'
+                  - $ref: '#/components/schemas/Pagination'
+              example:
+                data:
+                  - id: 18
+                    type: debit
+                    amount: 100
+                    balance_after: 7200
+                    description: null
+                    created_at: '2026-11-01T10:15:32.000000Z'
+                  - id: 17
+                    type: credit
+                    amount: 5000
+                    balance_after: 7300
+                    description: Top-up via bank transfer
+                    created_at: '2026-11-01T09:00:12.000000Z'
+                links:
+                  first: http://localhost:8000/api/consumers/1/wallet/transactions?page=1
+                  last: http://localhost:8000/api/consumers/1/wallet/transactions?page=1
+                  prev: null
+                  next: null
+                meta:
+                  current_page: 1
+                  from: 1
+                  last_page: 1
+                  path: http://localhost:8000/api/consumers/1/wallet/transactions
+                  per_page: 15
+                  to: 2
+                  total: 2
+        '404':
+          $ref: '#/components/responses/ConsumerNotFound'
+
+  /up:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      description: Laravel's built-in health route. Returns `200` as soon as the application boots; it does not check dependencies.
+      operationId: liveness
+      responses:
+        '200':
+          description: Application is up.
+          content:
+            text/html: {}
+
+  /ready:
+    get:
+      tags: [Health]
+      summary: Readiness probe
+      description: Reports whether the database and Kafka are reachable. Returns `503` when either check fails.
+      operationId: readiness
+      responses:
+        '200':
+          description: Ready to serve traffic.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Readiness'
+              example:
+                status: ready
+                checks:
+                  database:
+                    status: ok
+                  kafka:
+                    status: ok
+        '503':
+          description: One or more dependencies are unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Readiness'
+              example:
+                status: not_ready
+                checks:
+                  database:
+                    status: ok
+                  kafka:
+                    status: failed
+
+  /provider/sms-operator/receive:
+    post:
+      tags: [SMS operator (fake)]
+      summary: Receive an SMS (fake operator)
+      description: |
+        Simulates the external SMS operator. Deduplicates by `message_id` for 24 hours.
+        When `SMS_OPERATOR_FAKE_ENABLED` is on, it adds random latency and fails a
+        configurable percentage of requests with `500` so retry handling can be exercised.
+      operationId: operatorReceive
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message_id, to, message]
+              properties:
+                message_id:
+                  description: Gateway-side message id, used for deduplication.
+                  oneOf:
+                    - type: integer
+                    - type: string
+                to:
+                  type: string
+                message:
+                  type: string
+            example:
+              message_id: 42
+              to: '+989121234567'
+              message: Your verification code is 123456
+      responses:
+        '200':
+          description: Message received (or already received).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, message, code, duplicate]
+                properties:
+                  status:
+                    type: string
+                    const: ok
+                  message:
+                    type: string
+                  code:
+                    type: string
+                    const: sms_message_received
+                  duplicate:
+                    type: boolean
+                    description: True when the same `message_id` was already received.
+              example:
+                status: ok
+                message: SMS message received.
+                code: sms_message_received
+                duplicate: false
+        '400':
+          description: Invalid payload.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    const: error
+                  message:
+                    type: string
+                  code:
+                    type: string
+                    const: invalid_request
+                  errors:
+                    type: object
+                    additionalProperties:
+                      type: array
+                      items:
+                        type: string
+              example:
+                status: error
+                message: Invalid SMS request.
+                code: invalid_request
+                errors:
+                  to:
+                    - The to field is required.
+        '500':
+          description: Simulated transient operator failure.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Error'
+                  - type: object
+                    properties:
+                      status:
+                        type: string
+                        const: error
+              example:
+                status: error
+                message: SMS operator is temporarily unavailable.
+                code: operator_temporarily_unavailable
+
+components:
+  parameters:
+    ConsumerId:
+      name: consumerId
+      in: path
+      required: true
+      description: Numeric id of the consumer.
+      schema:
+        type: integer
+        minimum: 1
+      example: 1
+
+  requestBodies:
+    SendSms:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [to, message]
+            properties:
+              to:
+                type: string
+                pattern: '^\+?[0-9]{10,15}$'
+                description: Recipient phone number, 10 to 15 digits, optionally prefixed with `+`.
+              message:
+                type: string
+                maxLength: 1000
+          example:
+            to: '+989121234567'
+            message: Your verification code is 123456
+
+  responses:
+    SmsAccepted:
+      description: Message accepted and queued for delivery.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data:
+                $ref: '#/components/schemas/SmsMessage'
+          example:
+            data:
+              id: 42
+              type: normal
+              to: '+989121234567'
+              message: Your verification code is 123456
+              cost: 100
+              status: queued
+              attempts: 0
+              next_retry_at: null
+              created_at: '2026-11-01T10:14:29.000000Z'
+    ConsumerNotFound:
+      description: No consumer with the given id.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: Consumer not found.
+            code: consumer_not_found
+    InsufficientBalance:
+      description: The wallet's available balance does not cover the message cost.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Error'
+              - type: object
+                required: [required, available]
+                properties:
+                  required:
+                    type: integer
+                    description: Cost of the message.
+                  available:
+                    type: integer
+                    description: Available balance (balance minus reserved).
+          example:
+            message: Insufficient wallet balance.
+            code: insufficient_balance
+            required: 100
+            available: 40
+    QueueUnavailable:
+      description: The message could not be published to Kafka. The reservation is released and the message is marked `failed`.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: The message could not be queued for delivery. Please try again.
+            code: queue_unavailable
+    ValidationError:
+      description: Request validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+          example:
+            message: The recipient must be a phone number of 10 to 15 digits, optionally prefixed with +.
+            errors:
+              to:
+                - The recipient must be a phone number of 10 to 15 digits, optionally prefixed with +.
+
+  schemas:
+    SmsType:
+      type: string
+      enum: [normal, express]
+
+    SmsMessageStatus:
+      type: string
+      description: |
+        Lifecycle status of a stored message.
+        * `queued` - accepted and published to Kafka.
+        * `processing` - a worker is delivering it.
+        * `retry_scheduled` - transient operator failure; republished at `next_retry_at`.
+        * `accepted` - the operator accepted it and the reservation was confirmed.
+        * `failed` - rejected or out of attempts; the reservation was released.
+        * `delivered` - delivery confirmed.
+      enum: [queued, processing, retry_scheduled, accepted, failed, delivered]
+
+    SmsEventKind:
+      type: string
+      description: Consumer-visible event kinds in the delivery log.
+      enum: [queued, processing, retry_scheduled, republished, accepted, failed]
+
+    SmsMessage:
+      type: object
+      required: [id, type, to, message, cost, status, attempts, next_retry_at, created_at]
+      properties:
+        id:
+          type: integer
+        type:
+          $ref: '#/components/schemas/SmsType'
+        to:
+          type: string
+        message:
+          type: string
+        cost:
+          type: integer
+          description: Amount reserved on the wallet for this message.
+        status:
+          $ref: '#/components/schemas/SmsMessageStatus'
+        attempts:
+          type: integer
+        next_retry_at:
+          type: [string, 'null']
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    SmsEvent:
+      type: object
+      required: [sms_id, event, type, status, to, attempts, next_retry_at, reason, http_status, occurred_at]
+      properties:
+        sms_id:
+          type: integer
+        event:
+          $ref: '#/components/schemas/SmsEventKind'
+        type:
+          $ref: '#/components/schemas/SmsType'
+        status:
+          description: Message status at the time of the event.
+          oneOf:
+            - $ref: '#/components/schemas/SmsMessageStatus'
+            - type: 'null'
+        to:
+          type: string
+        attempts:
+          type: integer
+        next_retry_at:
+          type: [string, 'null']
+          format: date-time
+        reason:
+          type: [string, 'null']
+          description: |
+            Why a retry was scheduled or the message failed. Only set for
+            `retry_scheduled` and `failed` events. Typical values are
+            `operator_unreachable` and `operator_error`.
+        http_status:
+          type: [integer, 'null']
+          description: HTTP status returned by the operator, when a call was made.
+        occurred_at:
+          type: string
+          format: date-time
+
+    Wallet:
+      type: object
+      required: [balance, reserved_balance, available_balance]
+      properties:
+        balance:
+          type: integer
+        reserved_balance:
+          type: integer
+          description: Sum of pending reservations for in-flight messages.
+        available_balance:
+          type: integer
+          description: Balance minus reserved balance.
+
+    WalletTransaction:
+      type: object
+      required: [id, type, amount, balance_after, description, created_at]
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+          enum: [credit, debit]
+        amount:
+          type: integer
+        balance_after:
+          type: integer
+        description:
+          type: [string, 'null']
+        created_at:
+          type: string
+          format: date-time
+
+    Pagination:
+      type: object
+      description: Laravel paginator envelope.
+      required: [links, meta]
+      properties:
+        links:
+          type: object
+          properties:
+            first:
+              type: [string, 'null']
+              format: uri
+            last:
+              type: [string, 'null']
+              format: uri
+            prev:
+              type: [string, 'null']
+              format: uri
+            next:
+              type: [string, 'null']
+              format: uri
+        meta:
+          type: object
+          properties:
+            current_page:
+              type: integer
+            from:
+              type: [integer, 'null']
+            last_page:
+              type: integer
+            path:
+              type: string
+              format: uri
+            per_page:
+              type: integer
+            to:
+              type: [integer, 'null']
+            total:
+              type: integer
+
+    Readiness:
+      type: object
+      required: [status, checks]
+      properties:
+        status:
+          type: string
+          enum: [ready, not_ready]
+        checks:
+          type: object
+          properties:
+            database:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [ok, failed]
+            kafka:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [ok, failed]
+
+    Error:
+      type: object
+      required: [message, code]
+      properties:
+        message:
+          type: string
+          description: Human-readable description.
+        code:
+          type: string
+          description: Stable machine-readable error code.
+
+    ValidationError:
+      type: object
+      required: [message, errors]
+      properties:
+        message:
+          type: string
+          description: The first validation error.
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
