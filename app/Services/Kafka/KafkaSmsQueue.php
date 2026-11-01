@@ -21,7 +21,9 @@ class KafkaSmsQueue implements SmsQueue
 
     public function publishDeadLetter(array $payload, string $reason): void
     {
-        $topic = (string) config('kafka.topics.express_dlq');
+        // Payloads from before the type was included went to the express topic.
+        $type = SmsType::tryFrom((string) ($payload['type'] ?? '')) ?? SmsType::Express;
+        $topic = $type->deadLetterTopic();
 
         $key = isset($payload['id']) ? "message-{$payload['id']}" : null;
 

@@ -16,4 +16,9 @@ enum SmsType: string
     {
         return (string) config("kafka.topics.{$this->value}");
     }
+
+    public function deadLetterTopic(): string
+    {
+        return (string) config("kafka.topics.{$this->value}_dlq");
+    }
 }

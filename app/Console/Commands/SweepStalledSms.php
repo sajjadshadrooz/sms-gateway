@@ -6,7 +6,6 @@ use App\Contracts\MessageEventLog;
 use App\Contracts\SmsQueue;
 use App\Enums\MessageEvent;
 use App\Enums\SmsMessageStatus;
-use App\Enums\SmsType;
 use App\Exceptions\SmsQueueUnavailableException;
 use App\Models\SmsMessage;
 use Illuminate\Console\Command;
@@ -17,7 +16,7 @@ class SweepStalledSms extends Command
 {
     protected $signature = 'sms:sweep-stalled {--limit= : Maximum number of messages to handle per step in this run}';
 
-    protected $description = 'Fail SMS messages whose wallet hold expired and requeue express messages stuck in queued';
+    protected $description = 'Fail SMS messages whose wallet hold expired and requeue messages stuck in queued';
 
     public function handle(SmsQueue $queue, MessageEventLog $events): int
     {
@@ -32,11 +31,6 @@ class SweepStalledSms extends Command
         return self::SUCCESS;
     }
 
-    /**
-     * Messages not yet with the operator whose reservation passed its expiry are
-     * failed and their funds returned. Processing messages are left alone: a
-     * worker may be talking to the operator, and a crashed one gets redelivered.
-     */
     private function expireOverdue(MessageEventLog $events, int $limit): int
     {
         /** @var Collection<int, SmsMessage> $expired */
@@ -68,24 +62,17 @@ class SweepStalledSms extends Command
         return $expired->count();
     }
 
-    /**
-     * Put express messages that sat in queued too long back on their topic. A
-     * duplicate delivery is harmless: workers decide from the stored status.
-     * Normal messages are skipped until they have a worker of their own.
-     */
     private function requeueStale(SmsQueue $queue, MessageEventLog $events, int $limit): int
     {
         /** @var Collection<int, SmsMessage> $stale */
         $stale = DB::transaction(function () use ($limit) {
             $stale = SmsMessage::query()
                 ->staleQueued((int) config('sms.sweep.requeue_after_seconds'))
-                ->where('type', SmsType::Express)
                 ->orderBy('updated_at')
                 ->limit($limit)
                 ->lock('for update skip locked')
                 ->get();
 
-            // Restart the clock, so the next run does not requeue them again right away.
             foreach ($stale as $sms) {
                 $sms->touch();
             }

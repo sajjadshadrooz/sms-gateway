@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
-class DispatchExpressSms
+class DispatchSms
 {
     public function __construct(
         private readonly SmsOperatorClient $operator,
@@ -21,9 +21,6 @@ class DispatchExpressSms
         private readonly MessageEventLog $events,
     ) {}
 
-    /**
-     * Decide from the current status so a redelivered Kafka message is harmless.
-     */
     public function handle(SmsMessage $sms): void
     {
         $action = match ($sms->status) {
@@ -106,10 +103,6 @@ class DispatchExpressSms
         ]);
     }
 
-    /**
-     * Record the failed attempt and hand the message to the republish scheduler,
-     * or give up once the attempt limit is reached.
-     */
     private function scheduleRetry(SmsMessage $sms, string $error, int $httpStatus = 0): void
     {
         $attempt = $sms->attempts + 1;

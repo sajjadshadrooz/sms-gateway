@@ -12,7 +12,11 @@ services:
         volumes:
             - postgres-data:/var/lib/postgresql/data
         healthcheck:
-            test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-sms_gateway} -d ${DB_DATABASE:-sms_gateway}"]
+            test:
+                [
+                    "CMD-SHELL",
+                    "pg_isready -U ${DB_USERNAME:-sms_gateway} -d ${DB_DATABASE:-sms_gateway}",
+                ]
             interval: 3s
             timeout: 3s
             retries: 10
@@ -47,7 +51,11 @@ services:
             KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true" # i make a kafka init in future
             KAFKA_NUM_PARTITIONS: ${KAFKA_PARTITIONS:-3}
         healthcheck:
-            test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:29092 >/dev/null 2>&1"]
+            test:
+                [
+                    "CMD-SHELL",
+                    "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:29092 >/dev/null 2>&1",
+                ]
             interval: 5s
             timeout: 10s
             retries: 12
@@ -72,7 +80,11 @@ services:
         volumes:
             - clickhouse-data:/var/lib/clickhouse
         healthcheck:
-            test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"]
+            test:
+                [
+                    "CMD-SHELL",
+                    "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1",
+                ]
             interval: 5s
             timeout: 3s
             retries: 12
@@ -124,11 +136,11 @@ services:
             DB_HOST: postgres
             KAFKA_BROKERS: kafka:29092
             CLICKHOUSE_URL: http://clickhouse:8123
-            # The fake operator sleeps per request; let workers call it concurrently.
+            # The fake operator sleeps per request; let workers call it concurrently for solve this problem.
             PHP_CLI_SERVER_WORKERS: 4
         volumes:
-            - .:/var/www/html          # live code edits, no rebuild needed
-            - /var/www/html/vendor     # keep the image's vendor, not the host one
+            - .:/var/www/html # live code edits, no rebuild needed
+            - /var/www/html/vendor # keep the image's vendor, not the host one
         depends_on:
             postgres:
                 condition: service_healthy
@@ -191,8 +203,6 @@ services:
                 condition: service_completed_successfully
 
     sms-normal-worker:
-        profiles:
-            - normal
         build:
             context: .
             dockerfile: Dockerfile

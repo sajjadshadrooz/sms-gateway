@@ -9,6 +9,7 @@ return [
 
     'topics' => [
         'normal' => env('KAFKA_TOPIC_NORMAL', 'normal'),
+        'normal_dlq' => env('KAFKA_TOPIC_NORMAL_DLQ', 'normal-dlq'),
         'express' => env('KAFKA_TOPIC_EXPRESS', 'express'),
         'express_dlq' => env('KAFKA_TOPIC_EXPRESS_DLQ', 'express-dlq'),
     ],
